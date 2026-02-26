@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MangaLens — AI Manga Identifier</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Serif+JP:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0f;
+    --paper: #f5f0e8;
+    --red: #e8192c;
+    --red-dark: #b0101f;
+    --gold: #f0c040;
+    --grey: #8a8a9a;
+    --panel: #1a1a2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--ink); color: var(--paper); font-family: 'Space Mono', monospace; min-height: 100vh; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px); background-size: 20px 20px; pointer-events: none; z-index: 0; }
+  .container { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { text-align: center; margin-bottom: 50px; }
+  .logo { font-family: 'Bebas Neue', cursive; font-size: clamp(56px, 12vw, 100px); letter-spacing: 6px; line-height: 0.9; color: var(--paper); text-shadow: 6px 6px 0 var(--red); display: inline-block; }
+  .logo span { color: var(--red); text-shadow: 4px 4px 0 #600010; }
+  .tagline { font-size: 11px; letter-spacing: 4px; color: var(--grey); text-transform: uppercase; margin-top: 12px; }
+  .drop-zone { border: 3px dashed var(--red); border-radius: 4px; padding: 60px 30px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; background: rgba(232,25,44,0.04); margin-bottom: 24px; }
+  .drop-zone:hover, .drop-zone.drag-over { background: rgba(232,25,44,0.10); border-style: solid; transform: scale(1.01); }
+  .drop-zone.has-image { padding: 0; border-style: solid; background: var(--ink); }
+  .drop-icon { font-size: 56px; margin-bottom: 16px; display: block; animation: float 3s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+  .drop-title { font-family: 'Bebas Neue', cursive; font-size: 28px; letter-spacing: 3px; color: var(--paper); margin-bottom: 8px; }
+  .drop-sub { font-size: 11px; color: var(--grey); letter-spacing: 2px; }
+  #fileInput { display: none; }
+  #previewImg { width: 100%; max-height: 400px; object-fit: contain; display: block; border-radius: 2px; }
+  .remove-btn { position: absolute; top: 10px; right: 10px; background: var(--red); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px; font-weight: bold; display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .search-btn { width: 100%; background: var(--red); color: white; border: none; padding: 18px; font-family: 'Bebas Neue', cursive; font-size: 24px; letter-spacing: 6px; cursor: pointer; border-radius: 3px; transition: all 0.15s; margin-bottom: 32px; }
+  .search-btn:hover:not(:disabled) { background: var(--red-dark); transform: translateY(-2px); box-shadow: 0 8px 0 #700010; }
+  .search-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+  .search-btn:disabled { background: #444; cursor: not-allowed; }
+  .loading { display: none; text-align: center; padding: 40px; }
+  .loading.show { display: block; }
+  .manga-panels { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }
+  .panel-block { width: 24px; height: 32px; background: var(--red); border-radius: 2px; animation: panelPulse 0.8s ease-in-out infinite; }
+  .panel-block:nth-child(2) { animation-delay: 0.15s; height: 40px; }
+  .panel-block:nth-child(3) { animation-delay: 0.3s; }
+  .panel-block:nth-child(4) { animation-delay: 0.45s; height: 36px; }
+  .panel-block:nth-child(5) { animation-delay: 0.6s; }
+  @keyframes panelPulse { 0%,100%{opacity:0.3;transform:scaleY(0.8)} 50%{opacity:1;transform:scaleY(1)} }
+  .loading-text { font-family: 'Bebas Neue', cursive; font-size: 20px; letter-spacing: 4px; color: var(--grey); animation: blink 1.2s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .results { display: none; animation: slideUp 0.4s ease-out; }
+  .results.show { display: block; }
+  @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+  .result-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .result-badge { background: var(--gold); color: var(--ink); font-family: 'Bebas Neue', cursive; font-size: 13px; letter-spacing: 2px; padding: 4px 12px; border-radius: 2px; }
+  .result-badge.uncertain { background: var(--grey); color: var(--paper); }
+  .result-title-section { background: var(--panel); border-left: 5px solid var(--red); padding: 24px 28px; border-radius: 0 4px 4px 0; margin-bottom: 20px; }
+  .manga-title { font-family: 'Bebas Neue', cursive; font-size: clamp(28px, 6vw, 48px); letter-spacing: 3px; color: var(--paper); line-height: 1; margin-bottom: 6px; }
+  .manga-title-jp { font-family: 'Noto Serif JP', serif; font-size: 18px; color: var(--gold); margin-bottom: 12px; }
+  .confidence-bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-top: 16px; }
+  .confidence-fill { height: 100%; background: linear-gradient(90deg, var(--red), var(--gold)); border-radius: 2px; transition: width 1s ease-out; width: 0; }
+  .confidence-label { font-size: 10px; letter-spacing: 2px; color: var(--grey); margin-top: 6px; text-transform: uppercase; }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .info-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 16px; }
+  .info-label { font-size: 9px; letter-spacing: 3px; color: var(--red); text-transform: uppercase; margin-bottom: 8px; }
+  .info-value { font-size: 14px; color: var(--paper); line-height: 1.5; }
+  .description-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; padding: 20px; margin-bottom: 20px; font-size: 13px; line-height: 1.8; color: #ccc; }
+  .links-section h3 { font-family: 'Bebas Neue', cursive; font-size: 20px; letter-spacing: 3px; color: var(--grey); margin-bottom: 20px; }
+  .link-category { margin-bottom: 20px; }
+  .link-cat-label { font-family: 'Bebas Neue', cursive; font-size: 15px; letter-spacing: 3px; color: var(--red); margin-bottom: 10px; padding: 8px 12px; border-bottom: 1px solid rgba(232,25,44,0.25); background: rgba(232,25,44,0.05); border-radius: 3px 3px 0 0; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.15s; }
+  .link-cat-label:hover { background: rgba(232,25,44,0.12); }
+  .link-cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 7px; padding-top: 8px; }
+  .manga-link { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 10px 14px; color: var(--paper); text-decoration: none; font-size: 12px; letter-spacing: 1px; transition: all 0.15s; }
+  .manga-link:hover { background: var(--red); border-color: var(--red); transform: translateY(-2px); }
+  .manga-link .site-icon { font-size: 18px; }
+  .manga-link.custom-site { border-color: var(--gold); }
+  .manga-link.custom-site:hover { background: #c09020; border-color: #c09020; }
+  .error-box { display: none; background: rgba(232,25,44,0.1); border: 1px solid var(--red); border-radius: 4px; padding: 20px; text-align: center; font-size: 13px; color: #ff8888; margin-bottom: 20px; }
+  .error-box.show { display: block; }
+  .api-note { background: rgba(240,192,64,0.08); border: 1px solid rgba(240,192,64,0.3); border-radius: 4px; padding: 14px 18px; font-size: 11px; color: var(--gold); line-height: 1.7; margin-bottom: 24px; letter-spacing: 0.5px; }
+  .api-note strong { color: #f5d080; }
+
+  /* ── Add Custom Site Panel ── */
+  .add-site-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 22px 24px; margin-bottom: 28px; }
+  .add-site-title { font-family: 'Bebas Neue', cursive; font-size: 22px; letter-spacing: 3px; color: var(--gold); margin-bottom: 4px; }
+  .add-site-sub { font-size: 10px; color: var(--grey); letter-spacing: 2px; margin-bottom: 18px; }
+  .add-site-form { display: grid; grid-template-columns: 1fr 1fr 80px 44px; gap: 10px; align-items: end; }
+  @media(max-width: 600px) { .add-site-form { grid-template-columns: 1fr 1fr; } }
+  .field label { display: block; font-size: 9px; letter-spacing: 2px; color: var(--grey); text-transform: uppercase; margin-bottom: 6px; }
+  .field input { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; padding: 9px 12px; color: var(--paper); font-family: 'Space Mono', monospace; font-size: 12px; outline: none; transition: border-color 0.2s; }
+  .field input:focus { border-color: var(--gold); }
+  .field input::placeholder { color: rgba(255,255,255,0.25); }
+  .add-btn { background: var(--gold); color: var(--ink); border: none; border-radius: 4px; padding: 9px 0; font-family: 'Bebas Neue', cursive; font-size: 16px; letter-spacing: 2px; cursor: pointer; transition: all 0.15s; width: 100%; }
+  .add-btn:hover { background: #f5d060; transform: translateY(-1px); }
+  .del-btn { background: rgba(232,25,44,0.15); color: var(--red); border: 1px solid rgba(232,25,44,0.3); border-radius: 4px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .del-btn:hover { background: var(--red); color: white; }
+  .custom-list { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .custom-tag { display: flex; align-items: center; gap: 6px; background: rgba(240,192,64,0.1); border: 1px solid rgba(240,192,64,0.3); border-radius: 20px; padding: 5px 12px 5px 10px; font-size: 11px; color: var(--gold); max-width: 220px; }
+  .custom-tag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .custom-tag button { background: none; border: none; color: rgba(240,192,64,0.5); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; flex-shrink: 0; }
+  .custom-tag button:hover { color: var(--red); }
+  .empty-custom { font-size: 11px; color: rgba(255,255,255,0.2); letter-spacing: 1px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">Manga<span>Lens</span></div>
+    <p class="tagline">AI — Powered Manga Reverse Image Search</p>
+  </header>
+
+  <div class="api-note">
+    <strong>⚡ How it works:</strong> Upload any manga screenshot, panel, or cover image. Claude AI analyzes the art style, characters, and visual cues to identify the manga — then provides search links across popular sites. <strong>Add your own favorite manga sites below!</strong>
+  </div>
+
+  <!-- ── Add Custom Site Panel ── -->
+  <div class="add-site-panel">
+    <div class="add-site-title">➕ Add Your Manga Website</div>
+    <div class="add-site-sub">YOUR LINK WILL APPEAR IN THE RESULTS ALONGSIDE THE DEFAULT SITES</div>
+    <div class="add-site-form">
+      <div class="field">
+        <label>Site Name</label>
+        <input id="customName" type="text" placeholder="e.g. MyFavManga" maxlength="40">
+      </div>
+      <div class="field">
+        <label>URL (use {query} for search term)</label>
+        <input id="customUrl" type="text" placeholder="https://example.com/search?q={query}">
+      </div>
+      <div class="field">
+        <label>Icon (emoji)</label>
+        <input id="customIcon" type="text" placeholder="🌟" maxlength="4">
+      </div>
+      <button class="add-btn" onclick="addCustomSite()">ADD</button>
+    </div>
+    <div class="custom-list" id="customList">
+      <span class="empty-custom" id="emptyLabel">No custom sites added yet.</span>
+    </div>
+  </div>
+
+  <!-- Drop Zone -->
+  <div class="drop-zone" id="dropZone">
+    <div id="dropPrompt">
+      <span class="drop-icon">📸</span>
+      <div class="drop-title">Drop Manga Image Here</div>
+      <div class="drop-sub">or click to browse — PNG, JPG, WEBP supported</div>
+    </div>
+    <img id="previewImg" style="display:none;" alt="preview">
+    <button class="remove-btn" id="removeBtn" style="display:none;">✕</button>
+  </div>
+  <input type="file" id="fileInput" accept="image/*">
+
+  <button class="search-btn" id="searchBtn" disabled>🔍 IDENTIFY MANGA</button>
+
+  <div class="loading" id="loading">
+    <div class="manga-panels">
+      <div class="panel-block"></div><div class="panel-block"></div><div class="panel-block"></div>
+      <div class="panel-block"></div><div class="panel-block"></div>
+    </div>
+    <div class="loading-text">ANALYZING IMAGE...</div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="results" id="results">
+    <div class="result-header">
+      <span class="result-badge" id="confidenceBadge">HIGH CONFIDENCE</span>
+      <span style="font-size:11px;color:var(--grey);letter-spacing:2px;">IDENTIFICATION COMPLETE</span>
+    </div>
+    <div class="result-title-section">
+      <div class="manga-title" id="mangaTitle">—</div>
+      <div class="manga-title-jp" id="mangaTitleJP"></div>
+      <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill"></div></div>
+      <div class="confidence-label" id="confidenceLabel">confidence: —%</div>
+    </div>
+    <div class="info-grid" id="infoGrid"></div>
+    <div class="description-box" id="description"></div>
+    <div class="links-section">
+      <h3>🔗 Search Across <span id="linkCount" style="color:var(--red)">—</span> Websites</h3>
+      <div id="linksGrid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let currentBase64 = null, currentMediaType = null;
+let customSites = JSON.parse(localStorage.getItem('mangalens_custom') || '[]');
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const previewImg = document.getElementById('previewImg');
+const dropPrompt = document.getElementById('dropPrompt');
+const removeBtn = document.getElementById('removeBtn');
+const searchBtn = document.getElementById('searchBtn');
+const loading = document.getElementById('loading');
+const results = document.getElementById('results');
+const errorBox = document.getElementById('errorBox');
+
+// ── Custom Site Logic ──
+function saveCustom() { localStorage.setItem('mangalens_custom', JSON.stringify(customSites)); }
+
+function renderCustomList() {
+  const list = document.getElementById('customList');
+  const empty = document.getElementById('emptyLabel');
+  if (customSites.length === 0) {
+    list.innerHTML = '<span class="empty-custom" id="emptyLabel">No custom sites added yet.</span>';
+    return;
+  }
+  list.innerHTML = customSites.map((s, i) => `
+    <div class="custom-tag">
+      <span>${s.icon}</span>
+      <span title="${s.url}">${s.name}</span>
+      <button onclick="removeCustomSite(${i})" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function addCustomSite() {
+  const name = document.getElementById('customName').value.trim();
+  const url  = document.getElementById('customUrl').value.trim();
+  const icon = document.getElementById('customIcon').value.trim() || '🔗';
+  if (!name) { alert('Please enter a site name.'); return; }
+  if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    alert('Please enter a valid URL starting with http:// or https://'); return;
+  }
+  customSites.push({ name, url, icon });
+  saveCustom();
+  renderCustomList();
+  document.getElementById('customName').value = '';
+  document.getElementById('customUrl').value = '';
+  document.getElementById('customIcon').value = '';
+}
+
+function removeCustomSite(i) {
+  customSites.splice(i, 1);
+  saveCustom();
+  renderCustomList();
+}
+
+// init list
+renderCustomList();
+
+// ── Drop Zone ──
+dropZone.addEventListener('click', e => { if (e.target !== removeBtn) fileInput.click(); });
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+removeBtn.addEventListener('click', e => { e.stopPropagation(); clearImage(); });
+
+function loadFile(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    currentBase64 = e.target.result.split(',')[1];
+    currentMediaType = file.type;
+    previewImg.src = e.target.result;
+    previewImg.style.display = 'block';
+    dropPrompt.style.display = 'none';
+    removeBtn.style.display = 'flex';
+    dropZone.classList.add('has-image');
+    searchBtn.disabled = false;
+    results.classList.remove('show');
+    errorBox.classList.remove('show');
+  };
+  r.readAsDataURL(file);
+}
+
+function clearImage() {
+  currentBase64 = currentMediaType = null;
+  previewImg.src = ''; previewImg.style.display = 'none';
+  dropPrompt.style.display = 'block'; removeBtn.style.display = 'none';
+  dropZone.classList.remove('has-image'); searchBtn.disabled = true; fileInput.value = '';
+  results.classList.remove('show'); errorBox.classList.remove('show');
+}
+
+// ── Search ──
+searchBtn.addEventListener('click', identifyManga);
+
+async function identifyManga() {
+  if (!currentBase64) return;
+  loading.classList.add('show');
+  results.classList.remove('show');
+  errorBox.classList.remove('show');
+  searchBtn.disabled = true;
+  searchBtn.textContent = '⏳ IDENTIFYING...';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: currentMediaType, data: currentBase64 } },
+          { type: 'text', text: `You are a manga expert. Analyze this image and identify what manga/manhwa/manhua it is from.
+Respond ONLY with valid JSON (no markdown, no backticks):
+{"title":"English title","titleJP":"Japanese/original title if known","confidence":85,"genre":"Shonen/Shojo/Seinen/etc","author":"Author or Unknown","publisher":"Publisher or Unknown","status":"Ongoing/Completed/Hiatus/Unknown","chapters":"Count or Unknown","description":"2-3 sentence description","visual_clues":"What helped identify it","searchQuery":"best search term"}
+If unidentifiable, use title "Unknown Manga" with confidence 0.` }
+        ]}]
+      })
+    });
+    const data = await res.json();
+    const text = (data.content || []).map(i => i.text || '').join('');
+    let info;
+    try { info = JSON.parse(text.replace(/```json|```/g, '').trim()); }
+    catch { throw new Error('Could not parse AI response. Please try again.'); }
+    displayResults(info);
+  } catch(err) {
+    showError(err.message || 'Something went wrong. Please try again.');
+  } finally {
+    loading.classList.remove('show');
+    searchBtn.disabled = false;
+    searchBtn.textContent = '🔍 IDENTIFY MANGA';
+  }
+}
+
+// ── Display ──
+function displayResults(info) {
+  const title = info.title || 'Unknown';
+  const conf = Math.min(100, Math.max(0, info.confidence || 0));
+  const q = encodeURIComponent(info.searchQuery || title);
+
+  const badge = document.getElementById('confidenceBadge');
+  if (conf >= 70) { badge.textContent = 'HIGH CONFIDENCE'; badge.className = 'result-badge'; badge.style.background = ''; }
+  else if (conf >= 40) { badge.textContent = 'MODERATE CONFIDENCE'; badge.className = 'result-badge'; badge.style.background = '#e89020'; }
+  else { badge.textContent = 'LOW CONFIDENCE'; badge.className = 'result-badge uncertain'; badge.style.background = ''; }
+
+  document.getElementById('mangaTitle').textContent = title;
+  document.getElementById('mangaTitleJP').textContent = info.titleJP || '';
+  document.getElementById('confidenceLabel').textContent = `AI Confidence: ${conf}%`;
+  setTimeout(() => { document.getElementById('confidenceFill').style.width = conf + '%'; }, 100);
+
+  document.getElementById('infoGrid').innerHTML = [
+    { label: 'Genre', value: info.genre },
+    { label: 'Author', value: info.author },
+    { label: 'Publisher', value: info.publisher },
+    { label: 'Status', value: info.status },
+    { label: 'Chapters', value: info.chapters },
+    { label: 'Visual Clues', value: info.visual_clues },
+  ].map(d => `<div class="info-card"><div class="info-label">${d.label}</div><div class="info-value">${d.value || '—'}</div></div>`).join('');
+
+  document.getElementById('description').textContent = info.description || 'No description available.';
+
+  // ── Site categories (same as before, trimmed for brevity) ──
+  const cats = [
+    { label: '⭐ Your Custom Sites', custom: true, sites: [] },
+    { label: '📖 Free Reading', sites: [
+      { name:'MangaDex', icon:'📚', url:`https://mangadex.org/search?q=${q}` },
+      { name:'Bato.to', icon:'🦇', url:`https://bato.to/search?word=${q}` },
+      { name:'ComicK', icon:'💥', url:`https://comick.io/search?q=${q}` },
+      { name:'MangaPark', icon:'🌳', url:`https://mangapark.net/search?q=${q}` },
+      { name:'MangaSee', icon:'👁️', url:`https://mangasee123.com/search/?q=${q}` },
+      { name:'MangaFire', icon:'🔥', url:`https://mangafire.to/search?q=${q}` },
+      { name:'MangaHere', icon:'📰', url:`https://www.mangahere.cc/search/?q=${q}` },
+      { name:'MangaReader', icon:'📜', url:`https://mangareader.to/search?keyword=${q}` },
+      { name:'MangaOwl', icon:'🦉', url:`https://mangaowl.io/search?q=${q}` },
+      { name:'MangaBuddy', icon:'🤝', url:`https://mangabuddy.com/search?q=${q}` },
+      { name:'Toonily', icon:'🎭', url:`https://toonily.com/search?q=${q}` },
+      { name:'MangaGo', icon:'🟢', url:`https://mangago.me/search/?q=${q}` },
+      { name:'ReadM', icon:'📗', url:`https://www.readm.org/search?q=${q}` },
+      { name:'MangaKakalot', icon:'📖', url:`https://mangakakalot.com/search/story/${q}` },
+      { name:'MangaNato', icon:'🗾', url:`https://manganato.com/search/story/${q}` },
+      { name:'MangaFox', icon:'🦊', url:`https://fanfox.net/search?q=${q}` },
+      { name:'Zinmanga', icon:'⚡', url:`https://zinmanga.com/search/?q=${q}` },
+      { name:'MangaToon', icon:'🎈', url:`https://mangatoon.mobi/search?q=${q}` },
+      { name:'MangaHasu', icon:'🌺', url:`https://mangahasu.se/search.php?q=${q}` },
+      { name:'TcbScans', icon:'🏴‍☠️', url:`https://tcbscans.me/?s=${q}` },
+    ]},
+    { label: '💎 Official / Legal', sites: [
+      { name:'MangaPlus', icon:'➕', url:`https://mangaplus.shueisha.co.jp/search?q=${q}` },
+      { name:'Viz Media', icon:'🔷', url:`https://www.viz.com/search?search=${q}` },
+      { name:'ComiXology', icon:'☁️', url:`https://www.comixology.com/search?search=${q}` },
+      { name:'BookWalker', icon:'📗', url:`https://global.bookwalker.jp/search/?q=${q}&qcat=2` },
+      { name:'Azuki', icon:'🫘', url:`https://www.azuki.co/series?q=${q}` },
+      { name:'Comikey', icon:'🔑', url:`https://comikey.com/search/?q=${q}` },
+      { name:'Inkr Comics', icon:'🖊️', url:`https://comics.inkr.com/search?keyword=${q}` },
+      { name:'Piccoma', icon:'🍑', url:`https://piccoma.com/web/search?q=${q}` },
+      { name:'Manga UP!', icon:'☝️', url:`https://manga-up.com/search?word=${q}` },
+      { name:'Crunchyroll Manga', icon:'🍣', url:`https://www.crunchyroll.com/comics/manga?q=${q}` },
+    ]},
+    { label: '🇰🇷 Manhwa — Korean', sites: [
+      { name:'Webtoon', icon:'🌀', url:`https://www.webtoons.com/en/search?keyword=${q}` },
+      { name:'Tapas', icon:'🎨', url:`https://tapas.io/search?q=${q}` },
+      { name:'Tappytoon', icon:'💎', url:`https://www.tappytoon.com/en/comics/search?keyword=${q}` },
+      { name:'Lezhin Comics', icon:'🐦', url:`https://www.lezhinus.com/en/search?q=${q}` },
+      { name:'Manta Comics', icon:'🐋', url:`https://manta.net/en/search?q=${q}` },
+      { name:'Asura Scans', icon:'😈', url:`https://asuracomic.net/series?query=${q}` },
+      { name:'Flame Scans', icon:'🔥', url:`https://flamecomics.xyz/search/?s=${q}` },
+      { name:'Reaper Scans', icon:'💀', url:`https://reaper-scans.com/?s=${q}` },
+      { name:'Zero Scans', icon:'0️⃣', url:`https://zeroscans.com/comics?q=${q}` },
+      { name:'Omega Scans', icon:'Ω', url:`https://omegascans.org/?s=${q}` },
+      { name:'IsekaiScan', icon:'🌀', url:`https://isekaiscan.to/search?q=${q}` },
+      { name:'ManhwaTop', icon:'🏆', url:`https://manhwatop.com/search/?q=${q}` },
+    ]},
+    { label: '🇨🇳 Manhua — Chinese', sites: [
+      { name:'ManhuaPlus', icon:'🐉', url:`https://manhuaplus.com/search?q=${q}` },
+      { name:'Bilibili Comics', icon:'📺', url:`https://www.bilibilicomics.com/search?q=${q}` },
+      { name:'ManhuaScan', icon:'🀄', url:`https://manhuascan.io/search?q=${q}` },
+      { name:'ManhuaFast', icon:'⚡', url:`https://manhuafast.com/search/?q=${q}` },
+      { name:'ReadManhua', icon:'📄', url:`https://readmanhua.net/search?q=${q}` },
+      { name:'ManhuaES', icon:'🌺', url:`https://manhuaes.com/search?q=${q}` },
+      { name:'Kuaikan', icon:'🚀', url:`https://www.kuaikanmanhua.com/search?q=${q}` },
+    ]},
+    { label: '🇯🇵 Japanese Raw', sites: [
+      { name:'BookWalker JP', icon:'📗', url:`https://bookwalker.jp/search/?qcat=2&q=${q}` },
+      { name:'ComicWalker', icon:'🚶', url:`https://comic-walker.com/search/?keyword=${q}` },
+      { name:'Pixiv Comics', icon:'🎭', url:`https://comic.pixiv.net/search?q=${q}` },
+      { name:'Shonen Jump+', icon:'⚡', url:`https://shonenjumpplus.com/search?q=${q}` },
+      { name:'Comic Days', icon:'📅', url:`https://comic-days.com/search?q=${q}` },
+      { name:'Niconico Seiga', icon:'😊', url:`https://seiga.nicovideo.jp/search/manga?q=${q}` },
+      { name:'Ebookjapan', icon:'🇯🇵', url:`https://ebookjapan.yahoo.co.jp/search/?q=${q}` },
+    ]},
+    { label: '📊 Databases & Trackers', sites: [
+      { name:'MyAnimeList', icon:'📋', url:`https://myanimelist.net/manga.php?q=${q}` },
+      { name:'AniList', icon:'📊', url:`https://anilist.co/search/manga?search=${q}` },
+      { name:'Anime-Planet', icon:'🪐', url:`https://www.anime-planet.com/manga/all?name=${q}` },
+      { name:'MangaUpdates', icon:'🔄', url:`https://www.mangaupdates.com/search.html?search=${q}` },
+      { name:'Kitsu', icon:'🐱', url:`https://kitsu.io/manga?filter[text]=${q}` },
+      { name:'ANN', icon:'📰', url:`https://www.animenewsnetwork.com/search?query=${q}` },
+      { name:'Wikipedia', icon:'📖', url:`https://en.wikipedia.org/w/index.php?search=${q}+manga` },
+    ]},
+    { label: '🔍 Reverse Image Search', sites: [
+      { name:'SauceNAO', icon:'🥫', url:'https://saucenao.com/' },
+      { name:'IQDB', icon:'🖼️', url:'https://iqdb.org/' },
+      { name:'ASCII2D', icon:'🔢', url:'https://ascii2d.net/' },
+      { name:'Trace.moe', icon:'🎬', url:'https://trace.moe/' },
+      { name:'TinEye', icon:'👁️', url:'https://tineye.com/' },
+      { name:'Google Lens', icon:'🔍', url:'https://lens.google.com/' },
+      { name:'Google Images', icon:'🌐', url:`https://www.google.com/search?tbm=isch&q=${q}+manga` },
+      { name:'Yandex Images', icon:'🟡', url:`https://yandex.com/images/search?text=${q}+manga` },
+      { name:'Danbooru', icon:'🌸', url:`https://danbooru.donmai.us/posts?q=${q}` },
+    ]},
+    { label: '🛒 Buy Physical & Digital', sites: [
+      { name:'Amazon US', icon:'🇺🇸', url:`https://www.amazon.com/s?k=${q}+manga` },
+      { name:'Amazon JP', icon:'🗾', url:`https://www.amazon.co.jp/s?k=${q}+manga` },
+      { name:'CDJapan', icon:'💿', url:`https://www.cdjapan.co.jp/searchuni?q=${q}&category_id=M4` },
+      { name:'YesAsia', icon:'🌏', url:`https://www.yesasia.com/us/search?q=${q}&c=manga` },
+      { name:'RightStuf', icon:'🏪', url:`https://www.rightstufanime.com/search?keywords=${q}` },
+      { name:'Kinokuniya', icon:'🏯', url:`https://united-states.kinokuniya.com/search?q=${q}+manga` },
+      { name:'Mandarake', icon:'🎎', url:`https://order.mandarake.co.jp/order/listPage/serchKeyWord?keyword=${q}` },
+      { name:'eBay', icon:'🏷️', url:`https://www.ebay.com/sch/i.html?_nkw=${q}+manga` },
+    ]},
+  ];
+
+  // Inject custom sites into the first category
+  cats[0].sites = customSites.map(s => ({
+    name: s.name,
+    icon: s.icon,
+    url: s.url.includes('{query}') ? s.url.replace(/\{query\}/g, q) : s.url + q,
+    isCustom: true
+  }));
+
+  let totalLinks = customSites.length;
+  cats.slice(1).forEach(c => totalLinks += c.sites.length);
+  document.getElementById('linkCount').textContent = totalLinks;
+
+  document.getElementById('linksGrid').innerHTML = cats.map((cat, i) => {
+    if (cat.custom && cat.sites.length === 0) return ''; // hide if no custom sites
+    return `
+      <div class="link-category">
+        <div class="link-cat-label" onclick="toggleCat(${i})">
+          <span>${cat.label}${cat.custom ? ` <span style="font-size:10px;opacity:0.6;">(${cat.sites.length})</span>` : ''}</span>
+          <span id="toggle-${i}" style="font-size:11px;opacity:0.6;">▲</span>
+        </div>
+        <div class="link-cat-grid" id="cat-${i}">
+          ${cat.sites.map(s => `
+            <a class="manga-link${s.isCustom ? ' custom-site' : ''}" href="${s.url}" target="_blank" rel="noopener">
+              <span class="site-icon">${s.icon}</span>${s.name}
+            </a>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  results.classList.add('show');
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showError(msg) { errorBox.textContent = '⚠️ ' + msg; errorBox.classList.add('show'); }
+
+function toggleCat(i) {
+  const g = document.getElementById('cat-' + i), t = document.getElementById('toggle-' + i);
+  if (!g) return;
+  if (g.style.display === 'none') { g.style.display = 'grid'; t.textContent = '▲'; }
+  else { g.style.display = 'none'; t.textContent = '▼'; }
+}
+</script>
+</body>
+</html>
